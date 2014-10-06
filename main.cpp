@@ -67,7 +67,9 @@ int main(int argc, char* argv[])
     MQTTPacket_connectData data = MQTTPacket_connectData_initializer;       
     data.MQTTVersion = 3;
     data.clientID.cstring = "mbed-sample";
-    if ((rc = client.connect(&data)) != 0)
+    data.username.cstring = "testuser";
+    data.password.cstring = "testpassword";
+    if ((rc = client.connect(data)) != 0)
         lcd.printf("rc from MQTT connect is %d\n", rc);
     
     if ((rc = client.subscribe(topic, MQTT::QOS1, messageArrived)) != 0)
@@ -83,25 +85,36 @@ int main(int argc, char* argv[])
     message.dup = false;
     message.payload = (void*)buf;
     message.payloadlen = strlen(buf)+1;
-    rc = client.publish(topic, &message);
-    while (arrivedcount == 0)
+    rc = client.publish(topic, message);
+    while (arrivedcount < 1)
         client.yield(100);
         
     // QoS 1
     sprintf(buf, "Hello World!  QoS 1 message from app version %f\n", version);
     message.qos = MQTT::QOS1;
     message.payloadlen = strlen(buf)+1;
-    rc = client.publish(topic, &message);
-    while (arrivedcount == 1)
+    rc = client.publish(topic, message);
+    while (arrivedcount < 2)
         client.yield(100);
         
     // QoS 2
     sprintf(buf, "Hello World!  QoS 2 message from app version %f\n", version);
     message.qos = MQTT::QOS2;
     message.payloadlen = strlen(buf)+1;
-    rc = client.publish(topic, &message);
-    while (arrivedcount == 2)
+    rc = client.publish(topic, message);
+    while (arrivedcount < 3)
         client.yield(100);
+        
+    // n * QoS 2
+    for (int i = 1; i <= 10; ++i)
+    {
+        sprintf(buf, "Hello World!  QoS 2 message number %d from app version %f\n", i, version);
+        message.qos = MQTT::QOS2;
+        message.payloadlen = strlen(buf)+1;
+        rc = client.publish(topic, message);
+        while (arrivedcount < i + 3)
+            client.yield(100);
+    }
     
     if ((rc = client.unsubscribe(topic)) != 0)
         printf("rc from unsubscribe was %d\n", rc);

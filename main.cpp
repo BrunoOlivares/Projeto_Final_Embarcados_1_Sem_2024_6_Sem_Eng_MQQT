@@ -26,6 +26,7 @@
  */
 
  // change this to 1 to output messages to LCD instead of serial
+ 
 #define USE_LCD 0
 
 #if USE_LCD
@@ -38,102 +39,244 @@ C12832 lcd(LCD_MOSI, LCD_SCK, LCD_MISO, LCD_A0, LCD_NCS);
 
 #else
 
-#define logMessage printf
+#define logMessage printf // Criação do Log de mensagens
 
 #endif
 
 #define MQTTCLIENT_QOS2 1
 
-#include "easy-connect.h"
-#include "MQTTNetwork.h"
-#include "MQTTmbed.h"
-#include "MQTTClient.h"
+// Inclusão das biliotecas necessárias para comunicação via Mosquito
 
-int arrivedcount = 0;
+    #include "easy-connect.h"
+    #include "MQTTNetwork.h"
+    #include "MQTTmbed.h"
+    #include "MQTTClient.h"
+    #include <string>
+    #include "TextLCD.h"
 
+// Definição da Serial via USB
 
-void messageArrived(MQTT::MessageData& md)
-{
-    MQTT::Message &message = md.message;
-    logMessage("Message arrived: qos %d, retained %d, dup %d, packetid %d\r\n", message.qos, message.retained, message.dup, message.id);
-    logMessage("Payload %.*s\r\n", message.payloadlen, (char*)message.payload);
-    ++arrivedcount;
-}
+    Serial MotorPLC(USBTX, USBRX); 
+    Serial Teste(PD_5, PD_6);
 
+// Definição do I2C
 
-int main(int argc, char* argv[])
-{
-    float version = 0.6;
-    char* topic = "mbed-sample";
+    I2C OLED(D14, D15);
 
-    logMessage("HelloMQTT: version is %.2f\r\n", version);
+    TextLCD_I2C lcd(&OLED, 0x4E, TextLCD::LCD20x4); 
 
-    NetworkInterface* network = easy_connect(true);
-    if (!network) {
-        return -1;
+// Contagem de mensagens recebidas
+
+    int arrivedcount = 0; 
+
+// Criação de Buffer de armazenamento de mensagem
+
+    char buf[2];
+    char buf2[10];
+
+// Armazenamento de letra
+
+    char caracter;
+
+// Criação de Threads
+
+    Thread serial;
+    Thread tela;
+
+// Função de identificação de mensagem recebida via Mosquitos
+
+    void messageArrived(MQTT::MessageData& md) {
+
+    // Armazenamento da mensagem e informações referentes à mesma 
+
+            MQTT::Message &message = md.message;
+
+        // Aumento da contagem de mensagens recebidas pela placa
+
+            ++arrivedcount;
+
     }
 
-    MQTTNetwork mqttNetwork(network);
+// Função para adquirir caracter vindo da Serial 
 
-    MQTT::Client<MQTTNetwork, Countdown> client(mqttNetwork);
+    void caracteres() {
 
-    const char* hostname = "m2m.eclipse.org";
-    int port = 1883;
-    logMessage("Connecting to %s:%d\r\n", hostname, port);
-    int rc = mqttNetwork.connect(hostname, port);
-    if (rc != 0)
-        logMessage("rc from TCP connect is %d\r\n", rc);
+        // Loop de funcionamento da função
 
-    MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
-    data.MQTTVersion = 3;
-    data.clientID.cstring = "mbed-sample";
-    data.username.cstring = "testuser";
-    data.password.cstring = "testpassword";
-    if ((rc = client.connect(data)) != 0)
-        logMessage("rc from MQTT connect is %d\r\n", rc);
+            while(1) {
 
-    if ((rc = client.subscribe(topic, MQTT::QOS2, messageArrived)) != 0)
-        logMessage("rc from MQTT subscribe is %d\r\n", rc);
+                // Recebimento de caracter via Serial e alocação do dado para o buffer
 
-    MQTT::Message message;
+                    caracter = Teste.getc();
 
-    // QoS 0
-    char buf[100];
-    sprintf(buf, "Hello World!  QoS 0 message from app version %f\r\n", version);
-    message.qos = MQTT::QOS0;
-    message.retained = false;
-    message.dup = false;
-    message.payload = (void*)buf;
-    message.payloadlen = strlen(buf)+1;
-    rc = client.publish(topic, message);
-    while (arrivedcount < 1)
-        client.yield(100);
+                    sprintf(buf2, "%c", caracter);
 
-    // QoS 1
-    sprintf(buf, "Hello World!  QoS 1 message from app version %f\r\n", version);
-    message.qos = MQTT::QOS1;
-    message.payloadlen = strlen(buf)+1;
-    rc = client.publish(topic, message);
-    while (arrivedcount < 2)
-        client.yield(100);
+            }
 
-    // QoS 2
-    sprintf(buf, "Hello World!  QoS 2 message from app version %f\r\n", version);
-    message.qos = MQTT::QOS2;
-    message.payloadlen = strlen(buf)+1;
-    rc = client.publish(topic, message);
-    while (arrivedcount < 3)
-        client.yield(100);
+    }
 
-    if ((rc = client.unsubscribe(topic)) != 0)
-        logMessage("rc from unsubscribe was %d\r\n", rc);
+// Função para impressão de texto no LCD
 
-    if ((rc = client.disconnect()) != 0)
-        logMessage("rc from disconnect was %d\r\n", rc);
+    void texto() {
 
-    mqttNetwork.disconnect();
+        // Loop de funcionamento da função
 
-    logMessage("Version %.2f: finish %d msgs\r\n", version, arrivedcount);
+            while(1) {
 
-    return 0;
-}
+                // Caso o caracter recebido seja M, é indicado no LCD que o motor está habilitado em sentido horário
+
+                    if (caracter == 'M') {
+                    
+                        lcd.locate(0, 0);
+                        lcd.printf("Habilitado  ");
+                        lcd.locate(0, 1);
+                        lcd.printf("Horario    ");
+                        lcd.setCursor(TextLCD::CurOff_BlkOff);
+                        wait(1);
+
+                    }
+                
+                // Caso o caracter recebido seja W, é indicado no LCD que o motor está habilitado em sentido antihorário
+
+                    else if (caracter == 'W') {
+
+                        lcd.locate(0, 0);
+                        lcd.printf("Habilitado  ");
+                        lcd.locate(0, 1);
+                        lcd.printf("AntiHorario");
+                        lcd.setCursor(TextLCD::CurOff_BlkOff);
+                        wait(1);
+
+                    }
+
+                // Caso o caracter recebido seja D, é indicado no LCD que o motor está desabilitado
+
+                    else if (caracter == 'D') {
+
+                        lcd.locate(0, 0);
+                        lcd.printf("Desabilitado");
+                        lcd.locate(0, 1);
+                        lcd.printf("-----------");
+                        lcd.setCursor(TextLCD::CurOff_BlkOff);
+                        wait(1);
+
+                    }
+
+            }
+
+    }
+
+// Função principal de funcionamento
+
+    int main(int argc, char* argv[]) {
+
+        // Indicação de começo de operação via LCD
+
+            lcd.locate(0, 0);
+            lcd.printf("Inicio de");
+            lcd.locate(0, 1);
+            lcd.printf("Conexao");
+            wait(2);
+
+        // Limpeza da tela
+
+            lcd.cls();
+
+        // Definição das velocidades de resposta da Serial
+
+            MotorPLC.baud(115200);
+            Teste.baud(115200);
+
+        // Definição da versão de Mosquito e do tópico de comunicação com o seervidor Mosquito
+
+            float version = 0.6;
+            char* topic = "automation/topic";
+
+        // Mensagem de Log 
+
+            logMessage("HelloMQTT: version is %.2f\r\n", version);
+
+        // Definição da rede 
+
+            NetworkInterface* network = easy_connect(true);
+        
+        // Caso a conexão falhe, haverá um retorno para sinalização do erro
+
+            if (!network) {
+
+                lcd.locate(0, 0);
+                lcd.printf("Erro");
+
+                return -1;
+                
+            }
+
+        // Conexão com a rede Mosquito
+
+            MQTTNetwork mqttNetwork(network);
+
+        // Definição do cliente conectado à rede Mosquito previamente definida
+
+            MQTT::Client<MQTTNetwork, Countdown> client(mqttNetwork);
+
+        // Definição do host da rede e da porta de acesso
+
+            const char* hostname = "192.168.50.179";
+            int port = 1883;
+        
+        // Mensagem sinalizando tentativa de conexão com o host 
+
+            logMessage("Connecting to %s:%d\r\n", hostname, port);
+
+        // Flag de conexão realizada com o host
+
+            int rc = mqttNetwork.connect(hostname, port);
+
+        // Se a flag for diferente de 0, uma mensagem sinalizando a conexão bem sucedida é mostrada
+
+        if ((rc = mqttNetwork.connect(hostname, port)) != 0)
+            logMessage("rc from TCP connect is %d\r\n", rc);
+
+        // Criação do usuário conectado à rede
+
+            MQTTPacket_connectData data = MQTTPacket_connectData_initializer; // Inicialização de dados
+            data.MQTTVersion = 3; // Versão de MQTT
+            data.clientID.cstring = "XNUCLEOPLC01A1"; // ID do Cliente
+            data.username.cstring = "MotorPLC"; // Nome de usuário
+            data.password.cstring = "ProjetoAutomacao"; // Senha necessária de acesso
+
+        // Caso o cliente seja detectado pelo host, uma mensagem é exibida 
+
+            if ((rc = client.connect(data)) != 0)
+                logMessage("rc from MQTT connect is %d\r\n", rc);
+
+        // Caso o cliente venha a se inscrever em certo tópico da rede, uma mensagem é exibida 
+
+            if ((rc = client.subscribe(topic, MQTT::QOS0, messageArrived)) != 0)
+                logMessage("rc from MQTT subscribe is %d\r\n", rc);
+
+        // Variável de criação da mensagem a ser enviada pelo canal no tópico conectado
+
+            MQTT::Message message;    
+
+        // Inicialização da Thread
+
+            serial.start(&caracteres);
+            tela.start(&texto);
+
+        // Enquanto o cliente estiver conectado na rede, ele fica enviando informações no canal relacionado ao tópico desejado 
+            
+            while(1) {
+
+                // Criação da mensagem a ser enviada através da atribuição do buffer para a mensagem
+
+                    message.qos = MQTT::QOS2; // Sinalização da Mensagem
+                    message.retained = false;
+                    message.dup = false; 
+                    message.payload = (void*)buf2; // Atribuição do buffer
+                    message.payloadlen = strlen(buf2)+1; // Tamanho da mensagem
+                    client.publish(topic, message); // Publicação da mensagem no tópico conectado
+
+            }
+
+    }
